@@ -1,4 +1,5 @@
-# The world beyond batch: Streaming 102
+
+rld beyond batch: Streaming 102
  >原文作者：Tyler Akidau  
  >译者：    董捷
 
@@ -7,7 +8,7 @@
 
 同时，请注意本篇博文里包含了许多动画，所以如果读者直接打印的话将丢失一些精华内容。
 
-免责申明说完了，让Party开始吧！首先简单回顾一下，上次我专注在三个主要的领域：**名词**，精确地定义了我们常说的比如“流处理”的概念；**批处理与流处理对比**，比较这两种处理模式理论上的能力，并且提出了流计算若想超越批计算，仅需考虑两件事：1.正确性 2.推理时间的工具；和**数据处理模式**，探讨了批处理与流处理在处理有界与无界数据时的基本方法。
+免责申明说完了，让Party开始吧！首先简单回顾一下，上次我专注在三个主要的领域：**名词**，精确地定义了我们常说的比如“流处理”的概念；**批处理与流处理对比**，比较这两种处理模式理论上的能力，并且提出了流处理若想超越批处理，仅需考虑两件事：1.正确性 2.推理时间的工具；和**数据处理模式**，探讨了批处理与流处理在处理有界与无界数据时的基本方法。
 
 在这篇博文中，我希望在数据处理模式这个问题上更加深入，并且利用具体个案带场景更加更具体地深入挖掘。本篇博文的结构主要包括两部分：
 
@@ -49,7 +50,7 @@
 ## Streaming 101温习
 首先，让我们回顾一下在Streaming 101中介绍的概念。不过这次，我们将使用具体的例子使得这些概念更加具体。
 
-What：transforms
+### What：transforms（变形函数）
 
 在传统批处理中应用的变形函数解答了以下问题：“What results are calculated？”即便你们中的很多人可能对经典批处理已经非常熟悉，我们将会从批处理入手，毕竟它是我们如今新增的其他概念的基础。
 
@@ -66,11 +67,11 @@ What：transforms
 
 如果你发现自己懵逼了，或者你想看看参考文献，可以参考[Dataflow Java SDK文档](https://cloud.google.com/dataflow/model/programming-model)。
 
-回到例子的问题，我们假设我们从一个叫“input“的```PCollection<KV<String, Integer>>```开始，这里Strings就是团队名，Integer就是相应组内每个人的分数。现实中的流水线里，我们会从例如日志记录等原始数据中读取到一个```PCollection```，然后通过解析每条日志记录，把它转变为```PCollection<KV<String, Integer>>```。为了第一个例子的清晰性，我将会包括其他所有步骤的伪代码，但是在之后的例子中，我将会省略```I/O```读取与解析的部分。
+回到例子的问题，我们假设我们从一个叫“input“的```PCollection<KV<String, Integer>>```开始，这里Strings就是团队名，```Integer```就是相应组内每个人的分数。现实中的流水线里，我们会从例如日志记录等原始数据中读取到一个```PCollection```，然后通过解析每条日志记录，把它转变为```PCollection<KV<String, Integer>>```。为了第一个例子的清晰性，我将会包括其他所有步骤的伪代码，但是在之后的例子中，我将会省略```I/O```读取与解析的部分。
 
-如此，对于一个简单地读取单一```I/O源```的流水线，解析队名/分数对，然后计算各队的总分，我们的代码大致如下：
+如此，对于一个简单地读取单一```I/O```源的流水线，解析队名/分数对，然后计算各队的总分，我们的代码大致如下：
 
-```javacode
+```
 PCollection<String> raw = IO.read(...);
 PCollection<KV<String, Integer>> input = raw.apply(ParDo.of(new ParseFn());
 PCollection<KV<String, Integer>> scores = input
@@ -89,7 +90,7 @@ PCollection<KV<String, Integer>> scores = input
 
 因为这是个批流水线，它将会聚积状态直到它看到所有的输入（如顶部的绿色虚线所示），那时，它产出了唯一的输出51。在这个例子里，因为我们并没有指定窗口，我们计算了所有事件时间内数据的总和。因此，表示状态和输出的矩形覆盖了整个X轴。如果我们希望处理一个无界的数据源，经典批处理将无能为力。我们不能等待所有数据都到位因为他们永远不会终结。于是我们会希望一个概念，也就是窗口化，也就是我们在Streaming 101中介绍的。因此，在第二个问题的上下文中：“Where in event-time are results calculated？”，我们简单回顾下窗口化。
 
-Where：windowing
+### Where：windowing（窗口化）
 
 就像上次讨论的，窗口化就是把数据源根据临时边界切分为一个个的过程。通常切分窗口的策略包括固定窗口，滑动窗口与会话窗口：
 
@@ -97,7 +98,7 @@ Where：windowing
 
 为了找一个更好的现实中窗口具体长什么样子的感觉，让我们讲我们整形累加流水线切分为固定的，2分钟滚动的窗口。用Dataflow SDK，仅仅稍微增加一个```Window.into```变形即可。
 
-```javacode
+```
 PCollection<KV<String, Integer>> scores = input
   .apply(Window.into(FixedWindows.of(Duration.standardMinutes(2))))
   .apply(Sum.integersPerKey());
@@ -115,7 +116,7 @@ PCollection<KV<String, Integer>> scores = input
 
 我们刚刚观察了批处理引擎中窗口化的处理流水线。但是理想中，我们同时希望我们的结果是低延时的，此外我们也希望我们能够处理无界的数据源。切换到流处理引擎是正确的一步，但是然而批处理引擎有一个事件窗口里所有输入都完整的时点（也就是当所有有界数据都被消费完的时候），我们目前缺少一个行之有效的方式决定无界数据的完整。于是我们有了Watermarks。
 
-When：watermakrs
+### When：watermakrs
 
 Watermarks是以下问题的前半个解答：“When in processing time are results materialized?”Watermarks是事件时间领域中输入完整的临时标志。换一个角度想，它们是系统衡量事件流中消息被处理的进度与完整性的指标（在有界与无界数据源中均是如此，只不过显然它们在无界数据源的场景中更为有用）。
 
@@ -123,29 +124,29 @@ Watermarks是以下问题的前半个解答：“When in processing time are res
 
 ![skew](https://d3ansictanv2wj.cloudfront.net/Figure_05_-_Event_Time_vs_Processing_Time-6484c65e43d1821c617bee747b7de020.png)
 
-那条曲折的红线在现实中本质上就是Watermark；它体现了随处理时间增长，事件时间完整性的增长。概念上，你可以把Watermark理解为一个函数，F(P)->E，拥有一个处理时间的参数，返回一个事件时间的结果。（更确切地讲，这个函数的输入其实是Watermark观察到时整个流水线中所有上游的当前状态：输入源，缓冲区的数据，正在被处理的数据等；但是概念上，我们可以把它简单地理解为处理时间到事件时间的映射。）那个事件时间的时点，E，就是系统认为所有在事件时间之前发生的事件都已经可见的时点。换句话说，这是个假设：再也不会有在E之前的数据被系统观察到。基于Watermark的类型，完美或启发式，这个假设分别可能是硬性保证或是有根据的猜测：
+那条曲折的红线在现实中本质上就是Watermark；它体现了随处理时间增长，事件时间完整性的增长。概念上，你可以把Watermark理解为一个函数，```F(P)->E```，拥有一个处理时间的参数，返回一个事件时间的结果。（更确切地讲，这个函数的输入其实是Watermark观察到时整个流水线中所有上游的当前状态：输入源，缓冲区的数据，正在被处理的数据等；但是概念上，我们可以把它简单地理解为处理时间到事件时间的映射。）那个事件时间的时点，```E```，就是系统认为所有在事件时间之前发生的事件都已经可见的时点。换句话说，这是个假设：再也不会有在```E```之前的数据被系统观察到。基于Watermark的类型，完美或启发式，这个假设分别可能是硬性保证或是有根据的猜测：
 
 * 完美的Watermarks：这种场景下，我们确切地认识输入源时，我们有可能构建完美的Watermark；在这种场景下，不可能有迟到的数据，所有数据都是提前到或准点到达。
 * 启发式的Watermarks：对于许多分布式输入源来说，对数据源确切的全方位的了解是不现实的，在这种场景下次优解就是提供一个启发式的Watermark。启发式的Watermark利用全部可用的关于输入源的信息（partitions，partitions中信息的顺序性，文件的增长率等）去尽可能推断一个大概的进展。在很多情况下，这种Watermark可能会难以置信得准确。即使这样，启发式意味着有时会出错，此时就导致出现了迟到的数据。我们将会在接下来的Trigger章节学习多种处理迟到数据的机制。
 
 Watermarks是一个迷人而复杂的话题，它可以讲上几天几夜，然而此处篇幅有限，所有更多关于它的话题只能等未来的博文讲解。现在，为了更好地理解Watermarks扮演的角色和它的一些短板，我们来看看两个流处理引擎仅仅使用Watermarks去判断流水线中窗口何时发出输出的例子。
 
-![drawback-of-watermark](https://d3ansictanv2wj.cloudfront.net/Figure-06-815-0f83ddead9f4ea13116631e1fb17ad51.png)
+<p><a href="https://www.oreilly.com/ideas/the-world-beyond-batch-streaming-102?wvideo=zbl7xyy294"><img src="https://embedwistia-a.akamaihd.net/deliveries/1ca8c3335e912cd17061ca15889d2e1c27098de2.jpg?image_play_button_size=2x&amp;image_crop_resized=960x344&amp;image_play_button=1&amp;image_play_button_color=7b796ae0" width="400" height="143.75" style="width: 400px; height: 143.75px;"></a></p><p><a href="https://www.oreilly.com/ideas/the-world-beyond-batch-streaming-102?wvideo=zbl7xyy294">The world beyond batch: Streaming 102 - O'Reilly Media</a></p>
 
 在所有两个例子中，窗口都在Watermark传递到窗口末尾时发出输出。这两个处理流程的主要区别在于右边启发式的Watermarks算法没能统计到数值9，这个数值严重地改变了Watermark的走向。这两个例子阐述了Watermarks（和任何其他完整性的标记）的短板，准确地讲它们是：
 
 * 太慢：当Watermark因为处理队列中其他待处理的数据（比如日志输入被网络带宽限制）被阻塞的时候，那么如果仅仅依靠Watermark去判断进度的话，输出就会滞后。
 
-    就像上面左图中比较晚到达的数值9很明显地拖了后续所有窗口的后腿，即便后续的窗口内的输入都已完整。这个现象在窗口2 [12:02,12:04) 中非常明显，从该窗口从接受到第一个数值到最终输出结果大约花费了7分钟时间。然而启发性Watermark在这个问题上就相对来说就表现得比较好(大约花费了5分钟)，但是千万别想当然认为启发式Watermark就没有这个问题；上面例子只不过是我故意让窗口忽略数值9地结果而已。
+    就像上面左图中比较晚到达的数值9很明显地拖了后续所有窗口的后腿，即便后续的窗口内的输入都已完整。这个现象在窗口2 ```[12:02,12:04)``` 中非常明显，从该窗口从接受到第一个数值到最终输出结果大约花费了7分钟时间。然而启发性Watermark在这个问题上就相对来说就表现得比较好(大约花费了5分钟)，但是千万别想当然认为启发式Watermark就没有这个问题；上面例子只不过是我故意让窗口忽略数值9地结果而已。
     
     重点就是：当Watermark作为完整性的一个重要标志的时候，依赖完整的输入产生输出的做法从需要低延时的角度上并不可取。比如一个展示关键指标的大盘，时间窗为1小时或1天。你不会想要等整整1小时或1天才能看到大盘上的数据。这就是为什么这样的系统不使用传统批处理的一个蛋疼的原因。反而，不断根据时间推移修正结果直至产生最终结果的方式就好多了。
 * 太快：当启发式Watermark错误地过早到达时，可能还有很多有效数据尚未到达，从而产生了迟到数据。这就是例子中右图展示的那样：Watermark在窗口1中数据全部到达前就已经到达了，导致窗口错误地输出了5而不是正确的14。这是启发式Watermark不可避免的天性导致的，启发式的本质就是有时候会出错。所以，仅仅依赖它们去决定何时输出结果在你非常关心正确性时是不够的。
 
 在Streawming 101中，我明确表达了完整性标志对于一个输入为无界数据的健壮的乱序处理系统是不够的这个论点。Watermark的上述两个缺陷：太慢与太快，就是这个论点的论据。你不能仅仅通过完整性标志打造一个兼具正确性与低延时的系统。然而就是Triggers解决了Watermarks的这些缺陷。
 
-When：Triggers最棒的地方在于Triggers真特么就是太棒了！
+### When：Triggers最棒的地方在于Triggers真特么就是太棒了！
 
-Triggers就是“When in processing time are results materialized?”这个问题的后一半解答。Triggers申明了处理时间中何时窗口应该发送输出（其实Trigger本身也能够根据业务时间判断，比如依赖Watermarks）。任何窗口的一次输出被叫做一个窗格。
+Triggers就是“When in processing time are results materialized?”这个问题的后一半解答。Triggers申明了处理时间中何时窗口应该发送输出（其实Trigger本身也能够根据业务时间判断，比如依赖Watermarks）。任一次窗口输出被叫做一个窗格。
 
 触发Trigger的信号包含：
 * Watermark的推进（也就是业务时间的推进）：也就是我们在图6中看到的例子：当Watermark达到窗口尾部时，窗口的输出被发送。另一个例子是当时间窗口过期时，触发垃圾回收，我们将在之后重新回顾这个例子。
@@ -156,5 +157,62 @@ Triggers就是“When in processing time are results materialized?”这个问�
 除了这个简单的依赖具体信号的Triggers，也存在相对复杂的触发逻辑，包括：
 * Repetitions（重复）：在配合按处理时间按一定时间间隔更新时有奇效。
 * Conjunctions（逻辑AND）：当所有子Triggers被触发时才触发（例如在收到Watermark并且收到一个特定的符号标志的情况下才触发）。
-* Disjunctions（逻辑OR），当任意子Triggers被触发时就触发（例如在收到Watermark或者收到一个特定的符号标志的情况下就触发）。
-* Sequences（顺序性）：当子Triggers按特定顺序被触发时才触发。
+* Disjunctions（逻辑OR）：当任意子Triggers被触发时就触发（例如在收到Watermark或者收到一个特定的符号标志的情况下就触发）。
+* Sequences（顺序）：当子Triggers按特定顺序被触发时才触发。
+
+为了使Trigger这个概念更具体，我们把图6中默认选用的暗含的Trigger明确地写出来：
+
+```
+PCollection<KV<String, Integer>> scores = input
+  .apply(Window.into(FixedWindows.of(Duration.standardMinutes(2)))
+               .triggering(AtWatermark()))
+  .apply(Sum.integersPerKey());
+```
+
+了解了Trigger能提供什么能力之后，我们就可以继续探讨用Triggers解决Watermark太快和太慢的问题。在这两种场景中，我们本质上希望使得一个窗口的输出比较规律，或早或晚于Watermark经过窗口尾部的时间，所以我们需要某种重复Trigger。那么问题来了：什么是重复的？
+
+在太慢的场景中（也就是获得一个早期推测的结果），我们或许应该假设：还有很多该窗口的数据尚未到达（因为如我所说是早期）。这样，随着处理时间的推移重复地触发窗口可能是明智的，因为触发条件并不依赖于窗口内的数据量；最坏的情况就是得到一个周期性触发的稳定的流。
+
+在太快的场景中（也就是依据迟到数据修正因为启发式Watermark早到而产生的错误结果），我们假设启发式Watermark是相对准确的（一个合理的安全假设）。在这个场景中，不会有过多的迟到数据，但是一旦我们收到一条迟到数据，我们期望尽快修正之前的结果。收到1条迟到数据后就触发能够使得结果尽快得到修正（也就是在收到迟到数据时即刻触发）。但即使这样，因为迟到数据不会太频繁出现，也不会对系统造成过多的负担。
+
+请注意我说的只不过是例子而已：我们能够根据不同的场景选择（或根本不选择）合适顺手的Trigger。
+
+最后，我们需要谱写不同Triggers的时序合奏曲同时处理早到，准时与晚点的情况。我们能够通过一个顺序触发器（```Sequence Trigger```）和一个特殊的```OrFinally Trigger```做到，它设置了一个子Trigger，当子Trigger触发时中断父Trigger。
+
+```
+PCollection<KV<String, Integer>> scores = input
+  .apply(Window.into(FixedWindows.of(Duration.standardMinutes(2)))
+               .triggering(Sequence(
+                 Repeat(AtPeriod(Duration.standardMinutes(1)))
+                   .OrFinally(AtWatermark()),
+                 Repeat(AtCount(1))))
+  .apply(Sum.integersPerKey());
+```
+
+然而这么写太啰嗦了。同时因为现实中不断早到|准点|不断晚点的情形太常见了，我们定制（但是语义上相同的）一个语法糖使得申明这种Trigger更简单清晰。
+
+```
+PCollection<KV<String, Integer>> scores = input
+  .apply(Window.into(FixedWindows.of(Duration.standardMinutes(2)))
+               .triggering(
+                 AtWatermark()
+                   .withEarlyFirings(AtPeriod(Duration.standardMinutes(1)))
+                   .withLateFirings(AtCount(1))))
+  .apply(Sum.integersPerKey());
+```
+
+执行上述的任意的代码（不管使用完美Watermark或是启发式Watermark）得到的结果将大致如下：
+
+<p><a href="https://www.oreilly.com/ideas/the-world-beyond-batch-streaming-102?wvideo=li3chq4k3t"><img src="https://embedwistia-a.akamaihd.net/deliveries/a12e5efa572e0fb6d0c5ae9d5db1094676f6ef53.jpg?image_play_button_size=2x&amp;image_crop_resized=960x344&amp;image_play_button=1&amp;image_play_button_color=7b796ae0" width="400" height="143.75" style="width: 400px; height: 143.75px;"></a></p><p><a href="https://www.oreilly.com/ideas/the-world-beyond-batch-streaming-102?wvideo=li3chq4k3t">The world beyond batch: Streaming 102 - O'Reilly Media</a></p>
+
+这个版本的代码相对之前的有以下两个明显的优势：
+* 对于之前窗口2```[12:02,12:04)```的“Watermark太慢”这种场景，我们现在每分钟发出一次早到数据的更新。这在使用完美Watermark的场景下特别有效，首次输出延时从原先的7分钟降低到大约3分半钟。然后这在使用启发式Watermark的场景下也有明显的作用。在所有两种场景下，现在均由周期性地修正结果值（窗格的数值从7，14最后变为22），并且基本上获得了从输入完整到窗格最终输出结果的最低延时。
+* 对于之前窗口1```[12:00,12:02)```的“启发式Watermark太快”这种场景，当数值9最终到达时，我们立刻用它修正了窗格的输出并得到正确的结果14。
+
+这些Triggers的一个有趣的副作用是它们使得完美Watermark与启发式Watermark的输出模式趋同。虽然之前它们的输出模式完全不同，但现在却看起来大同小异。
+
+现在它们最大的不同就是窗口的生命周期。在完美Watermark的场景中，我们知道一旦Watermark到达，不会再有迟到的数据，所以我们可以直接清空窗口的所有状态。但是在启发式Watermark的场景中，当Watermark到达后窗口还会等待一段时间内到达的迟到数据。但是说实话，其实我们系统并不知道迟到的数据会迟到多久，也就不知道窗口得等待多久。所以我们提出了“容忍延迟(Allowed Lateness)”这个概念。
+
+### When: 容忍延迟(垃圾回收)
+
+在回答一下个问题（“How do refinements of results relate？”）之前，我希望探讨下不断运行的乱序无界数据处理系统所面临的一个非常现实的问题：垃圾回收。
