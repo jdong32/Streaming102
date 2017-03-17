@@ -250,8 +250,8 @@ PCollection<KV<String, Integer>> scores = input
 * Discarding（丢弃）：当一个窗格发出后，丢弃所有的状态。这意味着所有相邻的窗格都是独立的。丢弃模式在下游自行聚积的场景下十分有用，比如下游系统希望每次接收增量改变，而非全量结果。
 * Accumulating（聚积）：如图7所示，窗格每次发出结果，状态均被保留，稍晚的输入将被聚积到之前的状态中。这意味着任意相邻的窗格都依赖于前一个窗格。聚积模式在下游直接覆盖之前结果的场景下非常有用，就如使用BigTable或HBase直接存储键值对那样。
 * Accumulating & retracting（聚积&撤销）：类似聚积模式，但是当产生一个新窗格的同时，产生对于之前窗格的一些回撤。回撤（结合新产生的聚积值）本质上是在明确地表达：“我之前跟你说结果是X，但特么我错了。别管上次的X了，把X用Y替换掉。”在两种场景下回撤相当有用：
-* 当消费下游会根据不同的维度重组数据，有可能新数据与旧数据维度不同，应该被归为另一组。这样，新数据就不能直接替换老数据；相反，你需要从老数据那组回撤老数据，并在新数据那组增加新数据。
-* 当使用动态窗口（也就是会话窗口）的时候，因为窗口合并，新数据可能不仅仅是替换老数据。这种场景下，新窗口自身很难决定哪些老窗口会被合并，相反的撤销所有的老窗口相对简单暴力。
+    * 当消费下游会根据不同的维度重组数据，有可能新数据与旧数据维度不同，应该被归为另一组。这样，新数据就不能直接替换老数据；相反，你需要从老数据那组回撤老数据，并在新数据那组增加新数据。
+    * 当使用动态窗口（也就是会话窗口）的时候，因为窗口合并，新数据可能不仅仅是替换老数据。这种场景下，新窗口自身很难决定哪些老窗口会被合并，相反的撤销所有的老窗口相对简单暴力。
 
 把不同模式的语义放在一起比较可能对大家理解有所帮助。想想图7中窗口2```[12:02,12:04)```中的三个窗格。下表展示了使用三种不同的聚积模式时每次窗格发出的数据。
 
@@ -348,3 +348,5 @@ PCollection<KV<String, Integer>> scores = input
 为了建立一条基线，我们首先对比基于启发性Watermark的事件时间窗口会如何处理这两个数据源。我们将会使用之前的代码（代码5/代码7）去运行结果。左边的处理过程就像我们之前已经看到的，右边的处理过程是处理第二个数据源的过程。划重点：即便输出的大致形态改变了（因为不同的观测顺序），**但是每个窗口最终的输出是完全相同的：12，22，3和12**：
 
 <p><a href="https://www.oreilly.com/ideas/the-world-beyond-batch-streaming-102?wvideo=hnl6whv23j#L5"><img src="https://embedwistia-a.akamaihd.net/deliveries/2b26fd31ca9629d521fe80d821c0b76de941ef74.jpg?image_play_button_size=2x&amp;image_crop_resized=960x344&amp;image_play_button=1&amp;image_play_button_color=7b796ae0" width="400" height="143.75" style="width: 400px; height: 143.75px;"></a></p><p><a href="https://www.oreilly.com/ideas/the-world-beyond-batch-streaming-102?wvideo=hnl6whv23j#L5">The world beyond batch: Streaming 102 - O'Reilly Media</a></p>
+
+
