@@ -309,4 +309,42 @@ PCollection<KV<String, Integer>> scores = input
 
 你可以想象，这三种模式从左到右（丢弃模式、聚积模式、聚积&回撤模式），所消耗的计算与存储资源成本是递增的。从这个角度上，选择Accumulation模式从另一个角度上看就是权衡正确性、延时与成本。
 
+### 小插曲
 
+到这里为止，我们讨论了全部4个问题：
+* **What** results are calculated？答案是变形函数。
+* **Where** in event time are results calculated？答案是窗口化。
+* **When** in processing time are results materialized？答案是Watermarks和Triggers。
+* **How** do refinements of result relate？答案是聚积模式。
+
+然而我们目前仅讨论了一种窗口：基于事件时间的固定窗口。看过Streaming 101的你应该知道，其实存在多种维度的窗口，今天我想讨论其中的两种：**基于处理时间的固定窗口**和**基于事件时间的会话窗口**。
+
+### When/Where：处理时间窗口
+
+谈论处理时间窗口有两个重要的理由：
+* 对于特定的场景，比如用量统计（Web服务每秒访问量），你期望统计每秒系统的访问量，当然使用处理时间窗口是非常正确的选择。
+* 对于一些时间发生的时间十分重要的场景（例如用户行为分析，账单，计分等），千万不能用基于处理时间的窗口，能够理解这些场景非常关键。
+
+因此，深刻理解基于处理时间的窗口与基于事件时间的窗口非常重要，特别是在基于处理时间的窗口正在被大规模应用的今天。
+
+当一个类似本篇博文展现的计算模型，窗口模型是严格基于事件时间的时候，有两种方式能够获得基于处理时间的窗口：
+* Triggers：忽略事件时间（利用一个横跨所有事件时间的全局窗口）并使用Triggers提供基于随着处理时间推进的全局窗口的快照。
+* 进入时间（Ingress time）：把数据进入系统的时间作为数据的事件时间，并利用基于事件时间的窗口处理数据。就像Spark Streaming今天做的那样。
+
+注意：上述的两种方法其实大同小异，虽然他们在多stage流水线的场景下有一些细微的差异：使用Trigger方法时，每一个stage都独立地使用处理时间切割窗口，就拿这个例子来说，窗口X中的数据可能在下一个stage的X-1或者X+1的窗口内。使用进入时间方法时，一旦datum进入窗口X，因为多stage之间Watermark的同步（Dataflow中），或是因为微批边界（Spark Streaming中），或者其他任意引擎中的协同机制，在接下来的处理流水线中它就会一直在窗口X中。
+
+就像我不断强调的，基于处理时间的窗口的一个严重不足是窗口内数据会随着源数据消息顺序的改变而改变。为了更深刻地理解这个问题的本质，我们看看以下三个案例：
+
+* 基于处理时间的窗口
+* 通过Trigger形成处理时间窗口
+* 通过进入时间形成处理时间窗口
+
+我们将用每种方式运行两个不同的输入集合（所以总共有6种变形）。两个数据集事件发生顺序相同但系统观测顺序不同。第一个数据集的观测顺序就是我们之前一直看到的顺序，以白色表示；第二个数据集的观测顺序如图12展示的那样做了一些调整；以紫色表示。你可以想象的到，紫色的例子可能就发生在白色例子的平行世界里。
+
+<p><a href="https://fast.wistia.net/embed/iframe/lf3v07a065?videoFoam=true&amp;wvideo=lf3v07a065"><img src="https://embedwistia-a.akamaihd.net/deliveries/1489e8718ce80589784e51ec150bb4cf08d8577e.jpg?image_play_button_size=2x&amp;image_crop_resized=960x637&amp;image_play_button=1&amp;image_play_button_color=7b796ae0" width="400" height="265" style="width: 400px; height: 265px;"></a></p><p><a href="https://fast.wistia.net/embed/iframe/lf3v07a065?videoFoam=true&amp;wvideo=lf3v07a065">Figure 12 - input toggle</a></p>
+
+### 基于事件时间的窗口
+
+为了建立一条基线，我们首先对比基于启发性Watermark的事件时间窗口会如何处理这两个数据源。我们将会使用之前的代码（代码5/代码7）去运行结果。左边的处理过程就像我们之前已经看到的，右边的处理过程是处理第二个数据源的过程。划重点：即便输出的大致形态改变了（因为不同的观测顺序），**但是每个窗口最终的输出是完全相同的：12，22，3和12**：
+
+<p><a href="https://www.oreilly.com/ideas/the-world-beyond-batch-streaming-102?wvideo=hnl6whv23j#L5"><img src="https://embedwistia-a.akamaihd.net/deliveries/2b26fd31ca9629d521fe80d821c0b76de941ef74.jpg?image_play_button_size=2x&amp;image_crop_resized=960x344&amp;image_play_button=1&amp;image_play_button_color=7b796ae0" width="400" height="143.75" style="width: 400px; height: 143.75px;"></a></p><p><a href="https://www.oreilly.com/ideas/the-world-beyond-batch-streaming-102?wvideo=hnl6whv23j#L5">The world beyond batch: Streaming 102 - O'Reilly Media</a></p>
