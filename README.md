@@ -1,5 +1,4 @@
-
-rld beyond batch: Streaming 102
+# The world beyond batch: Streaming 102
  >原文作者：Tyler Akidau  
  >译者：    董捷
 
@@ -215,4 +214,99 @@ PCollection<KV<String, Integer>> scores = input
 
 ### When: 容忍延迟(垃圾回收)
 
-在回答一下个问题（“How do refinements of results relate？”）之前，我希望探讨下不断运行的乱序无界数据处理系统所面临的一个非常现实的问题：垃圾回收。
+在回答一下个问题（“How do refinements of results relate？”）之前，我希望探讨下不断运行的乱序无界数据处理系统所面临的一个非常现实的问题：垃圾回收。如图7的例子所示，所有窗口持久化的状态的生命周期等同于整个例子的生命周期；这是为了让我们正确地处理迟到的数据。虽然如果我们有足够的存储的话这么做非常棒，但是现实中在处理无穷无尽的无界数据源的时候，保留所有窗口的全部状态显然是不现实的；我们最终会耗尽硬盘空间。
+
+所以，任何现实中的乱序处理系统需要以某种方式限制窗口的生命周期。一种简单有效的做法就是定义一个容忍延迟时间，也就是在事件时间域定义一个系统是否处理迟到数据的时点边界。任意在这个时点之后才到的数据均会被直接丢弃。一旦你定义了最晚处理数据的时点，那么我们就能大致估算窗口的状态需要保存多久：当Watermark大于边界时点的时候。同时你也授予系统即刻丢弃一切更迟数据的自由，意味着系统不会为没人关心的太迟的数据浪费任何存储。
+
+因为容忍延迟与Watermark之间有一些微妙的纠葛，我们不妨用一个例子说明下。我们给使用启发性Watermark的处理流水线代码5/图7加一个容忍延迟-1分钟（这个1分钟是为迎合这个例子，现实中的情况一般是一个更大的容忍延迟）：
+
+```
+PCollection<KV<String, Integer>> scores = input
+  .apply(Window.into(FixedWindows.of(Duration.standardMinutes(2)))
+               .triggering(
+                 AtWatermark()
+                   .withEarlyFirings(AtPeriod(Duration.standardMinutes(1)))
+                   .withLateFirings(AtCount(1)))
+               .withAllowedLateness(Duration.standardMinutes(1)))
+  .apply(Sum.integersPerKey());
+```
+
+这时，这个流水线的执行就会类似下图8所示，为了凸显容忍延迟我特别添加以下内容：
+* 本来表示处理时间的粗白线现在为所有活跃的窗口标注了延迟参考线。
+* 一旦Watermark超过了延迟参考线，也就意味着窗口中的所有状态均为丢弃。在窗口关闭后，窗口曾经的生命周期以小白点围成的立方体表示，同时有一段表示延迟参考线的延伸。
+* 为了这个例子，我特别为窗口1新增了数值6。数值6虽然迟到了，但是延迟没有大于延时参考线，因此数值6被用以修正窗口的输出。然后数值9的延迟过大，超过了参考线，因此被直接丢弃了。
+
+<p><a href="https://fast.wistia.net/embed/iframe/muwcqnrmxf?videoFoam=true&amp;wvideo=muwcqnrmxf"><img src="https://embedwistia-a.akamaihd.net/deliveries/4bc76118539bfe60869ec06e6b6919b6e48d0ff2.jpg?image_play_button_size=2x&amp;image_crop_resized=960x643&amp;image_play_button=1&amp;image_play_button_color=7b796ae0" width="400" height="267.5" style="width: 400px; height: 267.5px;"></a></p><p><a href="https://fast.wistia.net/embed/iframe/muwcqnrmxf?videoFoam=true&amp;wvideo=muwcqnrmxf">Figure 08 - streaming speculative late allowed lateness 1min</a></p>
+
+关于延迟参考线最后两个需要关注的点：
+* 如果使用了完美Watermark，完全没有使用延迟参考线的必要，当然也可以把它设为可选值0s。这就是我们在图7中看到的那样。
+* 需要注意的是，即使我们选择了启发式Watermark，也并非一定需要使用延迟参考线。比方说按一定的键值统计全局的聚合结果，同时键值的可能性是有限的。这时，全局的窗口数量是有限的，同时聚合结果并不会占用过多的空间，因此也不需要为限制窗口的生命周期烦恼。
+
+可行性分析完毕，让我们进入第四个也就是最后一个问题。
+
+### How: Accumulation（聚积）
+
+当Trigger能够使得一个窗口产生多次窗格数据，我们就面临了最后一个问题：“How do refinements of results relate？”在之前我们看到的例子中，所有连续的窗格的数据都依赖于上一个窗格，但是其实Accumelation有多种模式。
+* Discarding（丢弃）：当一个窗格发出后，丢弃所有的状态。这意味着所有相邻的窗格都是独立的。丢弃模式在下游自行聚积的场景下十分有用，比如下游系统希望每次接收增量改变，而非全量结果。
+* Accumulating（聚积）：如图7所示，窗格每次发出结果，状态均被保留，稍晚的输入将被聚积到之前的状态中。这意味着任意相邻的窗格都依赖于前一个窗格。聚积模式在下游直接覆盖之前结果的场景下非常有用，就如使用BigTable或HBase直接存储键值对那样。
+* Accumulating & retracting（聚积&撤销）：类似聚积模式，但是当产生一个新窗格的同时，产生对于之前窗格的一些回撤。回撤（结合新产生的聚积值）本质上是在明确地表达：“我之前跟你说结果是X，但特么我错了。别管上次的X了，把X用Y替换掉。”在两种场景下回撤相当有用：
+* 当消费下游会根据不同的维度重组数据，有可能新数据与旧数据维度不同，应该被归为另一组。这样，新数据就不能直接替换老数据；相反，你需要从老数据那组回撤老数据，并在新数据那组增加新数据。
+* 当使用动态窗口（也就是会话窗口）的时候，因为窗口合并，新数据可能不仅仅是替换老数据。这种场景下，新窗口自身很难决定哪些老窗口会被合并，相反的撤销所有的老窗口相对简单暴力。
+
+把不同模式的语义放在一起比较可能对大家理解有所帮助。想想图7中窗口2```[12:02,12:04)```中的三个窗格。下表展示了使用三种不同的聚积模式时每次窗格发出的数据。
+
+ -|丢弃|聚积|聚积&回撤
+ -|-|-|- 
+ 窗格1 | 7 | 7 | 7
+ 窗格2 | 7 | 14 | 14，-7
+ 窗格3 | 8 | 22 | 22, -14
+ 最后观测的值 | 8 | 22 | 22
+ 总和 | 22 | 51 | 22
+ 
+ * **丢弃模式**：所有窗格仅处理在该窗格内到达的数据。这样，最后观测的值并不是总和的值。但是，如果你把每个独立窗格的值相加，不就会得到正确的总和22。这就是为什么当下游自行处理聚积时该模式十分有用的原因。
+ * **聚积模式**：如图7所示，所有窗格处理在该窗格内所有的数据，外加之前所有窗格的数值。这样，最后观测到的值就是总和22。但是如果你把所有窗口的数据相加，窗格2的结果将会被统计2遍，窗格1的结果将会被统计3遍，从而得到不正确的51。这就是为什么当消费下游直接覆盖之前数据的场景下该模式十分有用的原因。
+ * **聚积&回撤模式**：所有窗格包含聚积的值与需要回撤的值，这样，不论是最后观测到的值，还是总和的值，都是正确的总和22，这就是为什么回撤这么强大的原因。
+ 
+为了看看现实中丢弃模式的案例，我们把代码稍作修改：
+```
+PCollection<KV<String, Integer>> scores = input
+  .apply(Window.into(FixedWindows.of(Duration.standardMinutes(2)))
+               .triggering(
+                 AtWatermark()
+                   .withEarlyFirings(AtPeriod(Duration.standardMinutes(1)))
+                   .withLateFirings(AtCount(1)))
+               .discardingFiredPanes())
+  .apply(Sum.integersPerKey());
+```
+
+这段代码还是用启发式Watermark的流处理引擎执行将会产生如下输出：
+
+<p><a href="https://fast.wistia.net/embed/iframe/64r8oawoc2?videoFoam=true&amp;wvideo=64r8oawoc2"><img src="https://embedwistia-a.akamaihd.net/deliveries/39c7bdd39bb0cff10c8650807b255f3f34fad0a8.jpg?image_play_button_size=2x&amp;image_crop_resized=960x674&amp;image_play_button=1&amp;image_play_button_color=7b796ae0" width="400" height="281.25" style="width: 400px; height: 281.25px;"></a></p><p><a href="https://fast.wistia.net/embed/iframe/64r8oawoc2?videoFoam=true&amp;wvideo=64r8oawoc2">Figure 09 - streaming speculative late discarding</a></p>
+
+虽然大致上，输出的形状跟图7中聚积模式的形状相近，但是注意所有的窗格在丢弃模式下都不重叠。结果每个窗格都是独立输出。
+
+如果我们希望看看用回撤的效果，我们同样可以对代码稍作修改（注意，Google Cloud Dataflow当下还在开发回撤功能，所以例子中API的名称可能与最终发布版有较大出入）：
+
+```
+PCollection<KV<String, Integer>> scores = input
+  .apply(Window.into(FixedWindows.of(Duration.standardMinutes(2)))
+               .triggering(
+                 AtWatermark()
+                   .withEarlyFirings(AtPeriod(Duration.standardMinutes(1)))
+                   .withLateFirings(AtCount(1)))
+               .accumulatingAndRetractingFiredPanes())
+  .apply(Sum.integersPerKey());
+```
+
+如果执行以上代码，将得到以下结果：
+
+<p><a href="https://fast.wistia.net/embed/iframe/ksse5yiq3u?videoFoam=true&amp;wvideo=ksse5yiq3u"><img src="https://embedwistia-a.akamaihd.net/deliveries/3fef7a569ee1cf9e44c4a4859ef059c9c815fde5.jpg?image_play_button_size=2x&amp;image_crop_resized=960x674&amp;image_play_button=1&amp;image_play_button_color=7b796ae0" width="400" height="281.25" style="width: 400px; height: 281.25px;"></a></p><p><a href="https://fast.wistia.net/embed/iframe/ksse5yiq3u?videoFoam=true&amp;wvideo=ksse5yiq3u">Figure 10 - streaming speculative late retracting</a></p>
+
+因为所有的窗格都重叠，我们比较难清晰地观察回撤。我们用红色标记回撤的值，结合一个蓝色重叠窗格产生的偏紫色的新数值。同时我稍微调整了下两个数值的位置并把它们以逗号分隔，便于大家更好地观察。
+
+把图7、图9和图10放在一起比较能够较好地比较三者的区别：
+![accumulations](https://d3ansictanv2wj.cloudfront.net/Figure11-V2-0dfcc51fc13c713a3903d1d10681955a.jpg)
+
+你可以想象，这三种模式从左到右（丢弃模式、聚积模式、聚积&回撤模式），所消耗的计算与存储资源成本是递增的。从这个角度上，选择Accumulation模式从另一个角度上看就是权衡正确性、延时与成本。
+
+
