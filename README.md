@@ -85,8 +85,7 @@ PCollection<KV<String, Integer>> scores = input
 
 当流水线观测到数值时，它会在自己的状态中聚积这些值，并最终发出汇聚之后的结果作为输出。状态与输出表现为矩形，并在矩形顶部附近标注了在对应事件时间和处理时间内汇聚的数值。对于Listing 1的流水线，当执行经典批量处理时，动画如下所示（注意，点击图片将开始执行动画，动画会一直重复播放直到再次点击图片）：
 
-<p><a href="https://fast.wistia.net/embed/iframe/v12dlvvgfh?videoFoam=true&amp;wvideo=v12dlvvgfh"><img src="https://embedwistia-a.akamaihd.net/deliveries/8f42fed76aca326248ee220b2d0e6daece412c20.jpg?image_play_button_size=2x&amp;image_crop_resized=960x594&amp;image_play_button=1&amp;image_play_button_color=7b796ae0" width="400" height="247.5" style="width: 400px; height: 247.5px;"></a></p><p><a href="https://fast.wistia.net/embed/iframe/v12dlvvgfh?videoFoam=true&amp;wvideo=v12dlvvgfh">Figure 04 - batch fixed</a></p>
-
+<p><a href="https://fast.wistia.net/embed/iframe/24noytvllc?videoFoam=true&amp;wvideo=24noytvllc"><img src="https://embedwistia-a.akamaihd.net/deliveries/c9ce5cefab8d16db487342717cee477acffa7dfe.jpg?image_play_button_size=2x&amp;image_crop_resized=960x594&amp;image_play_button=1&amp;image_play_button_color=7b796ae0" width="400" height="247.5" style="width: 400px; height: 247.5px;"></a></p><p><a href="https://fast.wistia.net/embed/iframe/24noytvllc?videoFoam=true&amp;wvideo=24noytvllc">Figure 02 - classic batch</a></p>
 
 因为这是个批流水线，它将会聚积状态直到它看到所有的输入（如顶部的绿色虚线所示），那时，它产出了唯一的输出51。在这个例子里，因为我们并没有指定窗口，我们计算了所有事件时间内数据的总和。因此，表示状态和输出的矩形覆盖了整个X轴。如果我们希望处理一个无界的数据源，经典批处理将无能为力。我们不能等待所有数据都到位因为他们永远不会终结。于是我们会希望一个概念，也就是窗口化，也就是我们在Streaming 101中介绍的。因此，在第二个问题的上下文中：“Where in event-time are results calculated？”，我们简单回顾下窗口化。
 
@@ -106,7 +105,7 @@ PCollection<KV<String, Integer>> scores = input
 
 请谨记，窗口对于批处理与流处理提供了统一抽象，因为语义上讲，批处理仅仅是流处理的一个子问题。就这样，让我们首先用批处理引擎执行这个流水线；这个机制更为简单粗暴，同时，当我们切换到流引擎后，它将会让我们能够直观地对比两者。
 
-![windowing]()
+<p><a href="https://fast.wistia.net/embed/iframe/v12dlvvgfh?videoFoam=true&amp;wvideo=v12dlvvgfh"><img src="https://embedwistia-a.akamaihd.net/deliveries/8f42fed76aca326248ee220b2d0e6daece412c20.jpg?image_play_button_size=2x&amp;image_crop_resized=960x594&amp;image_play_button=1&amp;image_play_button_color=7b796ae0" width="400" height="247.5" style="width: 400px; height: 247.5px;"></a></p><p><a href="https://fast.wistia.net/embed/iframe/v12dlvvgfh?videoFoam=true&amp;wvideo=v12dlvvgfh">Figure 04 - batch fixed</a></p>
 
 就像之前那样，输入在状态中累积，直到他们被完全消费，之后将会产出输出结果。然而此时，对比之前1个结果，我们得到4个结果：每个2分钟的事件窗口都产出了一个输出。
 
